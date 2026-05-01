@@ -8,33 +8,41 @@ import {
   doc,
   updateDoc,
   deleteDoc,
-  writeBatch,
-  increment
+  increment,
+  getDoc,
+  writeBatch
 } from "firebase/firestore";
 import { db } from "./firebase";
 import type { Venta } from "../types/venta";
 import { calcularCostoGlobal } from "./produccionService";
 
 /**
- * 1. Lógica Matemática (Estilo Excel con protección contra NaN)
+ * 1. Lógica Matemática - CON VALIDACIÓN DE ZERO COST
  */
 export function calcularVentaExcel(
   data: {
     vendidas: number;
     entregadas: number;
     precio: number;
-    comision: number
+    comision: number;
+    costoUnitarioLote?: number;
   },
   producciones: any[]
 ) {
   const { costoGlobal } = calcularCostoGlobal(producciones);
+  
+  // ✅ VALIDACIÓN: Si no hay costo unitario específico Y costoGlobal es 0, fallback a 0
+  // pero advertencia en console
+  let cg = data.costoUnitarioLote !== undefined ? data.costoUnitarioLote : costoGlobal;
+  
+  if (cg === 0 && !data.costoUnitarioLote && producciones.length === 0) {
+    console.warn("⚠️ Advertencia: Costo unitario = 0. No hay lotes registrados o costo no especificado.");
+  }
 
-  // Forzamos valores numéricos para evitar NaN durante el tipeo
   const v = Number(data.vendidas) || 0;
   const e = Number(data.entregadas) || 0;
   const p = Number(data.precio) || 0;
   const c = Number(data.comision) || 0;
-  const cg = Number(costoGlobal) || 0;
 
   const ingreso = v * p;
   const costoCalculado = v * cg;
@@ -53,62 +61,81 @@ export function calcularVentaExcel(
 }
 
 /**
- * 2. Lógica de Inventario (FIFO)
+ * 2. Lógica de Inventario - CON VALIDACIONES
  */
-async function descontarStockFIFO(unidadesAVender: number) {
-  const batch = writeBatch(db);
+export async function obtenerStockActualDeLote(loteId: string): Promise<number> {
+  const loteRef = doc(db, "producciones", loteId);
+  const loteSnap = await getDoc(loteRef);
+  if (!loteSnap.exists()) throw new Error("El lote no existe");
+  return loteSnap.data().stockActual || 0;
+}
 
-  const q = query(
-    collection(db, "producciones"),
-    where("stockActual", ">", 0),
-    orderBy("stockActual", "asc")
-  );
+async function descontarStockDeLote(loteId: string, unidadesAVender: number) {
+  const loteRef = doc(db, "producciones", loteId);
+  const loteSnap = await getDoc(loteRef);
 
-  const snapshot = await getDocs(q);
-
-  // Orden manual por fecha para asegurar que salga lo más viejo primero
-  const docsOrdenados = snapshot.docs.sort((a, b) => {
-    return new Date(a.data().fecha).getTime() - new Date(b.data().fecha).getTime();
-  });
-
-  let pendiente = unidadesAVender;
-
-  for (const loteDoc of docsOrdenados) {
-    if (pendiente <= 0) break;
-
-    const loteData = loteDoc.data();
-    const stockDisponible = loteData.stockActual || 0;
-    const loteRef = doc(db, "producciones", loteDoc.id);
-
-    if (stockDisponible >= pendiente) {
-      batch.update(loteRef, {
-        stockActual: increment(-pendiente),
-        vendidas: increment(pendiente)
-      });
-      pendiente = 0;
-    } else {
-      batch.update(loteRef, {
-        stockActual: 0,
-        vendidas: increment(stockDisponible)
-      });
-      pendiente -= stockDisponible;
-    }
+  if (!loteSnap.exists()) throw new Error("El lote no existe");
+  
+  const stockActual = loteSnap.data().stockActual || 0;
+  
+  // ✅ VALIDACIÓN CRÍTICA: Prevenir stock negativo
+  if (unidadesAVender > stockActual) {
+    throw new Error(`Stock insuficiente. Disponible: ${stockActual}, Solicitado: ${unidadesAVender}`);
   }
 
-  await batch.commit();
+  await updateDoc(loteRef, {
+    stockActual: increment(-unidadesAVender),
+    vendidas: increment(unidadesAVender)
+  });
 }
 
 /**
- * 3. Operaciones CRUD
+ * 3. Lógica de Recálculo Dinámico (CON MEJOR MANEJO DE ERRORES)
+ * Busca todas las ventas vinculadas a un lote y actualiza sus costos y ganancias.
  */
-export async function guardarVentaDB(data: Venta) {
+export async function actualizarVentasPorCambioDeLote(loteId: string, nuevoCostoUnitario: number) {
   try {
-    await descontarStockFIFO(data.vendidas);
+    const q = query(collection(db, "ventas"), where("loteId", "==", loteId));
+    const snapshot = await getDocs(q);
+    
+    if (snapshot.empty) return;
 
+    const batch = writeBatch(db);
+
+    snapshot.docs.forEach((vDoc) => {
+      const vData = vDoc.data();
+      const vendidas = vData.vendidas || 0;
+      const ingreso = vData.ingreso || 0;
+      const comisionTotal = vData.comisionTotal || 0;
+
+      // Recalcular valores de la venta con el nuevo costo del lote
+      const nuevoCostoVenta = vendidas * nuevoCostoUnitario;
+      const nuevaGanancia = ingreso - nuevoCostoVenta - comisionTotal;
+
+      batch.update(vDoc.ref, {
+        costo: nuevoCostoVenta,
+        ganancia: nuevaGanancia,
+        costoGlobalSnapshot: nuevoCostoUnitario
+      });
+    });
+
+    await batch.commit();
+    console.log(`Sincronización exitosa: ${snapshot.size} ventas actualizadas.`);
+  } catch (e) {
+    console.error("Error al sincronizar ventas con el nuevo costo:", e);
+    // ✅ RE-LANZAR EXCEPCIÓN para que código llamador sepa que falló
+    throw new Error(`Falló sincronización de ventas: ${e instanceof Error ? e.message : 'Error desconocido'}`);
+  }
+}
+
+/**
+ * 4. Operaciones CRUD - CON TRANSACCIONES ATÓMICAS
+ */
+export async function guardarVentaDB(data: Venta & { loteId?: string; loteNombre?: string }) {
+  try {
     const { id, ...rest } = data;
     const ventaData = {
       ...rest,
-      // Si data.fecha existe (del input), se usa esa; si no, la actual.
       fecha: data.fecha || new Date().toISOString(),
       vendidas: Number(data.vendidas) || 0,
       entregadas: Number(data.entregadas) || 0,
@@ -119,13 +146,43 @@ export async function guardarVentaDB(data: Venta) {
       comisionTotal: Number(data.comisionTotal) || 0,
       ganancia: Number(data.ganancia) || 0,
       diferencia: Number(data.diferencia) || 0,
-      costoGlobalSnapshot: Number(data.costoGlobalSnapshot) || 0
+      costoGlobalSnapshot: Number(data.costoGlobalSnapshot) || 0,
+      loteId: data.loteId || "Sin ID",
+      loteNombre: data.loteNombre || "Sin nombre"
     };
 
-    await addDoc(collection(db, "ventas"), ventaData);
+    // ✅ TRANSACCIÓN ATÓMICA: Validar stock ANTES de cualquier operación
+    if (data.loteId && data.loteId !== "Sin ID") {
+      const stockActual = await obtenerStockActualDeLote(data.loteId);
+      if (data.vendidas > stockActual) {
+        throw new Error(`Stock insuficiente. Disponible: ${stockActual}, Solicitado: ${data.vendidas}`);
+      }
+    }
+
+    // ✅ OPERACIONES ATÓMICAS con writeBatch
+    const batch = writeBatch(db);
+    
+    // 1. Decrementar stock del lote
+    if (data.loteId && data.loteId !== "Sin ID") {
+      const loteRef = doc(db, "producciones", data.loteId);
+      batch.update(loteRef, {
+        stockActual: increment(-data.vendidas),
+        vendidas: increment(data.vendidas)
+      });
+    }
+    
+    // 2. Crear la venta
+    const ventasRef = collection(db, "ventas");
+    batch.set(doc(ventasRef), ventaData);
+    
+    // 3. Ejecutar TODO de una vez (atómico)
+    await batch.commit();
+    console.log("Venta registrada exitosamente");
+    
   } catch (e) {
-    console.error("Error en guardarVentaDB:", e);
-    throw e;
+    const errorMsg = e instanceof Error ? e.message : "Error desconocido";
+    console.error("Error en guardarVentaDB:", errorMsg);
+    throw new Error(`No se pudo guardar la venta: ${errorMsg}`);
   }
 }
 

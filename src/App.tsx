@@ -4,7 +4,6 @@ import ProduccionPage from "./pages/Produccion"
 import VentasPage from "./pages/Ventas"
 import Inventario from "./pages/Inventorio" // ✅ Corregido de "Inventorio" a "Inventario"
 import Vendedores from "./pages/Vendedores"
-import Entregas from "./pages/Entregas"
 import Login from "./pages/Login"           // ✅ Importamos la nueva página de Login
 import ProtectedRoute from "./components/ProtectedRoute" // ✅ El guardián de rutas
 
@@ -45,15 +44,9 @@ function App() {
             <Inventario />
           </ProtectedRoute>
         } />
-        
-        <Route path="/entregas" element={
-          <ProtectedRoute>
-            <Entregas />
-          </ProtectedRoute>
-        } />
       </Routes>
     </BrowserRouter>
   )
 }
-
+ 
 export default App

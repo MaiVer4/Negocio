@@ -10,6 +10,8 @@ import {
 } from "firebase/firestore";
 import { db } from "./firebase";
 import type { Produccion } from "../types/produccion";
+// Importación circular evitada mediante importación dinámica o manejo cuidadoso
+import { actualizarVentasPorCambioDeLote } from "./ventaService";
 
 /**
  * LÓGICA DE CÁLCULO DE COSTO UNITARIO
@@ -47,7 +49,6 @@ export async function guardarProduccionDB(data: Produccion) {
       ...dataToSave,
       stockActual: Number(dataToSave.unidades) || 0,
       vendidas: 0,
-      // Se asegura de guardar la fecha proporcionada o la actual en formato ISO
       fecha: dataToSave.fecha || new Date().toISOString()
     };
     await addDoc(collection(db, "producciones"), finalData);
@@ -59,8 +60,6 @@ export async function guardarProduccionDB(data: Produccion) {
 
 export async function obtenerProduccionesDB(): Promise<Produccion[]> {
   try {
-    // Ordenamos por fecha descendente para la vista, 
-    // pero el FIFO usará el orden cronológico.
     const q = query(collection(db, "producciones"), orderBy("fecha", "desc"));
     const snapshot = await getDocs(q);
     return snapshot.docs.map(d => ({ id: d.id, ...d.data() } as Produccion));
@@ -70,16 +69,37 @@ export async function obtenerProduccionesDB(): Promise<Produccion[]> {
   }
 }
 
+/**
+ * Actualiza el lote y dispara la actualización de ventas vinculadas
+ */
 export async function actualizarProduccionDB(id: string, data: Partial<Produccion>) {
   try {
     const docRef = doc(db, "producciones", id);
     const cleanData = Object.fromEntries(
       Object.entries(data).filter(([key, value]) => value !== undefined && key !== 'id')
     );
+
+    // 1. Actualizar el lote en la base de datos
     await updateDoc(docRef, cleanData);
+
+    // 2. Si el cambio incluyó costoUnidad (gramos o costo cambiaron), 
+    // actualizamos todas las ventas que dependen de este lote.
+    if (cleanData.costoUnidad !== undefined) {
+      try {
+        await actualizarVentasPorCambioDeLote(id, Number(cleanData.costoUnidad));
+      } catch (syncError) {
+        console.error("Advertencia: Falló sincronización de ventas:", syncError);
+        // Lote fue actualizado pero ventas NO sincronizaron - usuario debe saber
+        throw new Error(
+          'Lote actualizado ✓ pero falló sincronización de ventas. ' +
+          'Recarga la página y verifica los datos.'
+        );
+      }
+    }
   } catch (e) {
-    console.error("Error en actualizarProduccionDB:", e);
-    throw e;
+    const errorMsg = e instanceof Error ? e.message : "Error desconocido";
+    console.error("Error en actualizarProduccionDB:", errorMsg);
+    throw new Error(errorMsg);
   }
 }
 

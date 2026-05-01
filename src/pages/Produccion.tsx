@@ -68,7 +68,8 @@ export default function ProduccionPage() {
       limpiarFormulario();
       cargarDatos();
     } catch (e) {
-      alert("Error en la operación");
+      const errorMsg = e instanceof Error ? e.message : "Error desconocido en la operación";
+      alert(`Error: ${errorMsg}`);
     } finally {
       setLoading(false);
     }
@@ -98,7 +99,13 @@ export default function ProduccionPage() {
   }
 
   const precioSugerido = loteSeleccionado ? loteSeleccionado.costoUnidad * 3 : 0;
-  const gananciaEst = loteSeleccionado ? (loteSeleccionado.unidades * precioSugerido) - loteSeleccionado.costo : 0;
+  
+  // ✅ CORRECCIÓN CRÍTICA: Ganancia real solo sobre STOCK DISPONIBLE
+  // Antes: (unidades TOTALES * precio) - costo ← SOBRESTIMADO
+  // Ahora: (stock DISPONIBLE * precio) - (stock DISPONIBLE * costo) ← CORRECTO
+  const gananciaEst = loteSeleccionado 
+    ? (loteSeleccionado.stockActual * precioSugerido) - (loteSeleccionado.stockActual * loteSeleccionado.costoUnidad)
+    : 0;
 
   return (
     <Layout>
