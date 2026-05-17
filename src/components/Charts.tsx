@@ -1,14 +1,13 @@
 import {
   LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer,
-  BarChart, Bar, CartesianGrid
+  CartesianGrid
 } from "recharts"
 
 type Props = {
   dataDia: any[]
-  dataVendedor: any[]
 }
 
-export default function Charts({ dataDia, dataVendedor }: Props) {
+export default function Charts({ dataDia }: Props) {
   return (
     <div className="grid gap-6 md:grid-cols-1 mt-8 pb-10">
 
@@ -27,23 +26,6 @@ export default function Charts({ dataDia, dataVendedor }: Props) {
             <Line type="monotone" dataKey="ventas" stroke="#3B82F6" strokeWidth={3} dot={{ r: 4 }} name="Unidades" />
             <Line type="monotone" dataKey="ganancia" stroke="#10B981" strokeWidth={3} dot={{ r: 4 }} name="Ganancia $" />
           </LineChart>
-        </ResponsiveContainer>
-      </div>
-
-      {/* Ventas por vendedor */}
-      <div className="bg-gray-800 p-6 rounded-2xl border border-gray-700 shadow-xl">
-        <h2 className="text-gray-400 font-bold mb-4 uppercase text-xs tracking-widest">Ventas por Vendedor</h2>
-        <ResponsiveContainer width="100%" height={300}>
-          <BarChart data={dataVendedor}>
-            <CartesianGrid strokeDasharray="3 3" stroke="#374151" vertical={false} />
-            <XAxis dataKey="nombre" stroke="#9CA3AF" fontSize={12} />
-            <YAxis stroke="#9CA3AF" fontSize={12} />
-            <Tooltip 
-              contentStyle={{ backgroundColor: '#1F2937', border: '1px solid #374151', borderRadius: '8px' }}
-              cursor={{ fill: '#374151', opacity: 0.4 }}
-            />
-            <Bar dataKey="ventas" fill="#8B5CF6" radius={[4, 4, 0, 0]} name="Unidades" />
-          </BarChart>
         </ResponsiveContainer>
       </div>
 

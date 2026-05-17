@@ -176,7 +176,7 @@ export default function Dashboard() {
       {/* ── GRÁFICAS ── */}
       {charts && (
         <div className="mb-6">
-          <Charts dataDia={charts.dataDia} dataVendedor={charts.dataVendedor} />
+          <Charts dataDia={charts.dataDia} />
         </div>
       )}
  
