@@ -13,9 +13,17 @@ import {
 import { obtenerProduccionesDB } from "../services/produccionService"
 import { formatCurrency } from "../services/helpers"
 
+const getLocalDateString = () => {
+  const today = new Date()
+  const year = today.getFullYear()
+  const month = String(today.getMonth() + 1).padStart(2, '0')
+  const day = String(today.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+
 export default function VentasPage() {
   const [vendedor, setVendedor] = useState("")
-  const [fecha, setFecha] = useState(new Date().toISOString().split("T")[0])
+  const [fecha, setFecha] = useState(getLocalDateString())
   const [entregadas, setEntregadas] = useState(0)
   const [vendidas, setVendidas] = useState(0)
   const [precio, setPrecio] = useState(2000)
@@ -99,7 +107,7 @@ export default function VentasPage() {
     setEditId(null); setVendedor(""); setEntregadas(0); setVendidas(0)
     setPrecio(2000); setComision(0); setMetodo("Contado"); setEstatus("Pagado")
     setLoteId(""); setLoteNombre(""); setCostoUnitarioLote(undefined)
-    setFecha(new Date().toISOString().split("T")[0])
+    setFecha(getLocalDateString())
   }
 
   const fieldClass = "w-full bg-gray-900 text-white px-4 py-3 rounded-xl border border-gray-700 text-sm font-semibold outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/30 transition-all placeholder-gray-600"
