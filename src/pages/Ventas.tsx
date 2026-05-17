@@ -19,7 +19,7 @@ export default function VentasPage() {
   const [entregadas, setEntregadas] = useState(0)
   const [vendidas, setVendidas] = useState(0)
   const [precio, setPrecio] = useState(2000)
-  const [comision, setComision] = useState(300)
+  const [comision, setComision] = useState(0)
   const [metodo, setMetodo] = useState<"Contado" | "Fiado">("Contado")
   const [estatus, setEstatus] = useState<"Pagado" | "Pendiente">("Pagado")
   const [loteId, setLoteId] = useState("")
@@ -97,7 +97,7 @@ export default function VentasPage() {
 
   function limpiarFormulario() {
     setEditId(null); setVendedor(""); setEntregadas(0); setVendidas(0)
-    setPrecio(2000); setComision(300); setMetodo("Contado"); setEstatus("Pagado")
+    setPrecio(2000); setComision(0); setMetodo("Contado"); setEstatus("Pagado")
     setLoteId(""); setLoteNombre(""); setCostoUnitarioLote(undefined)
     setFecha(new Date().toISOString().split("T")[0])
   }
